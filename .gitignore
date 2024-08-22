@@ -1,0 +1,14 @@
+.env
+node_modules
+*.o
+*.a
+*.so
+_obj
+_test
+vendor/
+*.exe
+*.out
+.DS_Store
+/bin/
+*.Out
+/tmp
