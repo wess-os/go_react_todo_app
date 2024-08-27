@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Todo struct {
@@ -20,7 +24,21 @@ type Todo struct {
 	Body      string             `json:"body"`
 }
 
+type User struct {
+	ID       primitive.ObjectID `bson:"_id,omitempty"`
+	Name     string             `json:"name"`
+	Email    string             `json:"email"`
+	Password string             `json:"password"`
+}
+
+type Claims struct {
+	Email string `json:"email"`
+	jwt.StandardClaims
+}
+
 var collection *mongo.Collection
+var userCollection *mongo.Collection
+var jwtKey = []byte(os.Getenv("SECRET_KEY"))
 
 func main() {
 	err := godotenv.Load(".env")
@@ -46,13 +64,21 @@ func main() {
 	fmt.Println("Connected to MongoDB")
 
 	collection = client.Database("golang_db").Collection("todos")
+	userCollection = client.Database("golang_db").Collection("users")
 
 	app := fiber.New()
 
-	app.Get("/api/todos", getTodos)
-	app.Post("/api/todos", createTodos)
-	app.Patch("/api/todos/:id", updateTodos)
-	app.Delete("/api/todos/:id", deleteTodos)
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "http://localhost:5174",
+		AllowHeaders: "Origin, Content-Type, Accept",
+	}))
+
+	app.Get("/api/todos", isAuthenticated, getTodos)
+	app.Post("/api/todos", isAuthenticated, createTodos)
+	app.Post("/api/register", register)
+	app.Post("/api/login", login)
+	app.Patch("/api/todos/:id", isAuthenticated, updateTodos)
+	app.Delete("/api/todos/:id", isAuthenticated, deleteTodos)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -152,4 +178,93 @@ func deleteTodos(c *fiber.Ctx) error {
 	return c.Status(200).JSON(fiber.Map{
 		"message": "Todo deleted successfully",
 	})
+}
+
+func register(c *fiber.Ctx) error {
+	var user User
+
+	if err := c.BodyParser(&user); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Invalid input"})
+	}
+
+	if user.Email == "" || user.Password == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"message": "Email and password cannot be empty",
+		})
+	}
+
+	var existingUser User
+	err := userCollection.FindOne(context.Background(), bson.M{"email": user.Email}).Decode(&existingUser)
+	if err == nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Email already in use"})
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Could not hash password"})
+	}
+	user.Password = string(hashedPassword)
+
+	_, err = userCollection.InsertOne(context.Background(), user)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Could not create user"})
+	}
+
+	return c.Status(201).JSON(fiber.Map{"message": "User registered successfully"})
+}
+
+func login(c *fiber.Ctx) error {
+	var user User
+
+	if err := c.BodyParser(&user); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Invalid input"})
+	}
+
+	var existingUser User
+	err := userCollection.FindOne(context.Background(), bson.M{"email": user.Email}).Decode(&existingUser)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid email or password"})
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(existingUser.Password), []byte(user.Password))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid email or password"})
+	}
+
+	expirationTime := time.Now().Add(24 * time.Hour) // O token expira em 24 horas
+	claims := &Claims{
+		Email: user.Email,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Could not create token"})
+	}
+
+	return c.Status(200).JSON(fiber.Map{"message": "Login successful", "token": tokenString})
+}
+
+func isAuthenticated(c *fiber.Ctx) error {
+	tokenString := c.Get("Authorization")
+
+	if tokenString == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Missing token"})
+	}
+
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtKey, nil
+	})
+
+	if err != nil || !token.Valid {
+		return c.Status(401).JSON(fiber.Map{"error": "Invalid token"})
+	}
+
+	c.Locals("email", claims.Email)
+
+	return c.Next()
 }
