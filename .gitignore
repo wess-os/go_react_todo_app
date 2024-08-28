@@ -12,3 +12,4 @@ vendor/
 /bin/
 *.Out
 /tmp
+dist
