@@ -10,12 +10,25 @@ export type Todo = {
 }
 
 const TodoList = () => {
+    const token = localStorage.getItem('token');
+
     const {data:todos, isLoading} = useQuery<Todo[]>({
         queryKey: ["todos"],
 
         queryFn: async () => {
             try {
-                const res = await fetch(BASE_URL + "todos");
+                const headers: HeadersInit = {
+                    "Content-Type": "application/json",
+                };
+
+                if (token) {
+                    headers["Authorization"] = token;
+                }
+
+                const res = await fetch(BASE_URL + "todos", {
+                    method: 'GET',
+                    headers: headers,
+                });
                 const data = await res.json();
                 
                 if (!res.ok) {
@@ -24,7 +37,7 @@ const TodoList = () => {
 
                 return data || [];
             } catch (error) {
-                console.log(error);
+                window.location.href = '/login';
             }
         }
     });

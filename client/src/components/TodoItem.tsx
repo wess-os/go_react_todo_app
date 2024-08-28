@@ -7,14 +7,24 @@ import { BASE_URL } from "../App";
 
 const TodoItem = ({ todo }: { todo: Todo }) => {
     const queryClient = useQueryClient();
+    const token = localStorage.getItem('token');
 
     const {mutate: updateTodo, isPending: isUpdating} = useMutation({
         mutationKey:["updateTodo"],
         mutationFn: async () => {
             if(todo.completed) return alert("Todo already completed");
             try {
+                const headers: HeadersInit = {
+                    "Content-Type": "application/json",
+                };
+
+                if (token) {
+                    headers["Authorization"] = token;
+                }
+
                 const res = await fetch(BASE_URL + `todos/${todo._id}`, {
                     method: "PATCH",
+                    headers: headers,
                 });
 
                 const data = await res.json();
@@ -25,7 +35,6 @@ const TodoItem = ({ todo }: { todo: Todo }) => {
 
                 return data;
             } catch (error) {
-                console.log(error);
             }
         },
         onSuccess: () => {
@@ -37,8 +46,17 @@ const TodoItem = ({ todo }: { todo: Todo }) => {
         mutationKey:["deleteTodo"],
         mutationFn: async () => {
             try {
+                const headers: HeadersInit = {
+                    "Content-Type": "application/json",
+                };
+
+                if (token) {
+                    headers["Authorization"] = token;
+                }
+
                 const res = await fetch(BASE_URL + `todos/${todo._id}`, {
                     method: "DELETE",
+                    headers: headers,
                 });
 
                 const data = await res.json();
@@ -49,7 +67,6 @@ const TodoItem = ({ todo }: { todo: Todo }) => {
 
                 return data;
             } catch (error) {
-                console.log(error);
             }
         },
         onSuccess: () => {

@@ -5,6 +5,7 @@ import { BASE_URL } from "../App";
 
 const TodoForm = () => {
     const [newTodo, setNewTodo] = useState("");
+    const token = localStorage.getItem('token');
 
     const queryClient = useQueryClient();
 
@@ -13,11 +14,22 @@ const TodoForm = () => {
         mutationFn: async (e:React.FormEvent) => {
             e.preventDefault();
             try {
+                if (!newTodo.trim()) {
+                    alert("O campo não pode estar vazio.");
+                    return;
+                }
+
+                const headers: HeadersInit = {
+                    "Content-Type": "application/json",
+                };
+
+                if (token) {
+                    headers["Authorization"] = token;
+                }
+
                 const res = await fetch(BASE_URL + "todos", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
+                    headers: headers,
                     body: JSON.stringify({
                         body: newTodo,
                     }),
@@ -33,7 +45,7 @@ const TodoForm = () => {
 
                 return data;
             } catch (error:any) {
-                console.log(error);
+                window.location.href = '/login';
             }
         },
         onSuccess: () => {
@@ -74,4 +86,4 @@ const TodoForm = () => {
     );
 }
 
-export default TodoForm
+export default TodoForm;
